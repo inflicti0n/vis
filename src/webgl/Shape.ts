@@ -16,7 +16,7 @@ export default class Shape {
 	timeU: THREE.IUniform;
 
 	constructor(parentScene: THREE.Scene) {
-		const geom = new THREE.TorusBufferGeometry(5, 1, 32, 32);
+		let geom = new THREE.TorusBufferGeometry(5, 2.5, 512, 512);
 		const mat = new THREE.RawShaderMaterial({
 			uniforms: {
 				time: {value: 0}
@@ -31,10 +31,11 @@ export default class Shape {
 
 	public update(secs: number): void {
 		this.timeU.value = secs;
+
 		this.mesh.rotation.set(
 			Math.sin(secs / 10) * 2 * Math.PI,
 			Math.cos(secs / 10) * 2 * Math.PI,
-			0
+			Math.sin(secs / 10) * 2 * Math.PI
 		);
 	}
 }
