@@ -38,7 +38,7 @@ class App {
 		var audioHandler : AudioHandler;
 
 		function play() {
-				audioHandler = new AudioHandler(audioCanvas);
+				audioHandler = new AudioHandler(audioCanvas,fftText,frequencyText);
 		}
 		function pause() {
 

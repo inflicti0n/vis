@@ -11,11 +11,14 @@ export default class AudioHandler{
 
     public audioCanvas : HTMLCanvasElement;
 
+    public fft : HTMLParagraphElement;
+    public frequency : HTMLParagraphElement;
+
     
 
     //public isAudioPlaying : boolean ;
 
-    constructor(audioCanvas: HTMLCanvasElement){
+    constructor(audioCanvas: HTMLCanvasElement, fft : HTMLParagraphElement, frequency : HTMLParagraphElement){
 
         this.audioCanvas=audioCanvas;
 
@@ -28,8 +31,9 @@ export default class AudioHandler{
         var audioCtx = new (AudioContext)();
         var analyser = audioCtx.createAnalyser();
 
-        analyser.fftSize = 2048;
+        analyser.fftSize = 128;
         var bufferLength = analyser.frequencyBinCount;
+
         var dataArray = new Uint8Array(bufferLength);
 
         var source = audioCtx.createMediaElementSource(this.audio);
@@ -69,12 +73,20 @@ export default class AudioHandler{
                 }
         
                 x += sliceWidth;
+
+                
+                setInterval(()=> { fft.innerText=`FFT : ${i}` }, 1* 1000);
             }
-              canvasCtx.lineTo(audioCanvas.width, audioCanvas.height/2);
-              canvasCtx.stroke();
+            
+
+            canvasCtx.lineTo(audioCanvas.width, audioCanvas.height/2);
+            canvasCtx.stroke();
+
+              
         }
 
         draw();
+        
 		
     }
 
