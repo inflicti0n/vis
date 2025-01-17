@@ -1,0 +1,171 @@
+#!/usr/bin/env groovy
+pipeline {
+    agent any
+    tools {
+        nodejs 'NodeJS'
+    }
+    options {
+        buildDiscarder logRotator(
+                    daysToKeepStr: '5',
+                    numToKeepStr: '5'
+            )
+        timestamps()
+        disableConcurrentBuilds()
+        timeout(time: 1, unit: 'HOURS')
+    }
+    environment {
+        APP_NAME = "e-Consent API"
+        GTIHUB_TOKEN = credentials("github-jenkins-token")
+    }
+    stages {
+			stage('Setup environment') {
+				steps {
+					sh """
+            echo "Installing npm packages..."
+            npm install
+					"""
+				}
+        post {
+          always {
+            slackSend channel: 'jenkins', color: 'good', teamDomain: 'auth-assos', tokenCredentialId: 'jenkins-slack-integration', message: "e-Consent server - #${env.BUILD_NUMBER} Started (<${env.RUN_DISPLAY_URL}|Open>) \nBranch:'${env.BRANCH_NAME}'"
+          }
+        }
+			}
+			stage ('Tests') {
+				failFast true
+				steps {
+							sh """
+								echo "Testing project..."
+								npm run test
+							"""
+				}
+				post {
+					success {
+						echo "Test successful"
+					}
+					failure {
+						echo "Test failure"
+					}
+				}
+			}
+			stage('Code Build') {
+					steps {
+								sh """
+								echo "Building project..."
+								npm run build
+								"""
+					}
+					post {
+						success {
+							echo "Build successful"
+						}
+						failure {
+							echo "Build failure"
+						}
+					}
+			}
+      stage('Deploy Develop') {
+				when {
+          expression {
+					  env.BRANCH_NAME == 'develop'
+          }
+				}
+		    environment {
+          CAPTAIN_CREDS = credentials('captain-vm') //e-consent-server-devops-ssh-key
+        }
+				steps {
+          echo "Deploying to Dev"
+          echo "Copying dist files to server"
+          // Do not forget to add vm user into /etc/sudoers file
+          // Example: captain  ALL=(ALL) NOPASSWD: /bin/systemctl stop e-consent.service
+
+          withCredentials([sshUserPrivateKey(credentialsId: 'e-consent-server-devops-ssh-key', keyFileVariable: 'KEY_FILE', usernameVariable: 'USER')]) {
+    sh '''
+        echo "Stopping service"
+        ssh -i $KEY_FILE -o StrictHostKeyChecking=no $USER@api.e-consent.gr /bin/bash <<'EOT'
+        sudo systemctl stop e-consent-dev.service
+        echo "Service e-Consent-dev stopped"
+        rm -rf /opt/e-consent-dev/dist
+EOT
+
+        echo "Transferring files"
+        rsync --progress -avz -e "ssh -i $KEY_FILE" /var/lib/jenkins/workspace/e-consent-server_develop/dist $USER@api.e-consent.gr:/opt/e-consent-dev
+        rsync --progress -avz -e "ssh -i $KEY_FILE" /var/lib/jenkins/workspace/e-consent-server_develop/node_modules $USER@api.e-consent.gr:/opt/e-consent-dev/dist
+
+        echo "Starting service"
+        ssh -i $KEY_FILE -o StrictHostKeyChecking=no $USER@api.e-consent.gr /bin/bash <<'EOT'
+        sudo systemctl start e-consent-dev.service
+        systemctl is-active --quiet e-consent-dev && echo "Service e-Consent-dev is running"
+EOT
+    '''
+}
+				}
+				post {
+					always {
+						echo "Cleaning..."
+						//cleanWs() /* clean up our workspace */
+					}
+					success {
+						echo "${APP_NAME} successfully deployed to Develop Env"
+					}
+					failure {
+						echo "${APP_NAME} deployment failed to Develop Env"
+					}
+				}
+			}
+      stage('Deploy Master') {
+				when {
+          expression {
+					  env.BRANCH_NAME == 'master'
+          }
+				}
+		    environment {
+          CAPTAIN_CREDS = credentials('captain-vm')
+        }
+				steps {
+          echo "Deploying to Master"
+          echo "Copying dist files to server"
+          // Do not forget to add vm user into /etc/sudoers file
+          // Example: captain  ALL=(ALL) NOPASSWD: /bin/systemctl stop e-consent.service
+          sh '''
+            echo "Stopping service"
+            sshpass -p $CAPTAIN_CREDS_PSW ssh -o \'StrictHostKeyChecking=no\' captain@api.captain-eu.org /bin/bash <<\'EOT\'
+            sudo systemctl stop e-consent.service
+            echo Service e-Consent stopped
+            rm -rf /opt/e-consent/dist
+EOT
+            rsync --progress -avz -e "ssh -i /var/lib/jenkins/.ssh/captain-vm" /var/lib/jenkins/workspace/e-consent-server_master/dist captain@api.captain-eu.org:/opt/e-consent
+            rsync --progress -avz -e "ssh -i /var/lib/jenkins/.ssh/captain-vm" /var/lib/jenkins/workspace/e-consent-server_master/node_modules captain@api.captain-eu.org:/opt/e-consent/dist
+            echo "Starting service"
+            sshpass -p $CAPTAIN_CREDS_PSW ssh -o \'StrictHostKeyChecking=no\' captain@api.captain-eu.org /bin/bash <<\'EOT\'
+            sudo systemctl start e-consent.service
+            systemctl is-active --quiet e-consent && echo Service e-Consent is running
+EOT
+          '''
+				}
+				post {
+					always {
+						echo "Cleaning..."
+						//cleanWs() /* clean up our workspace */
+					}
+					success {
+						echo "${APP_NAME} successfully deployed to Production Env"
+					}
+					failure {
+						echo "${APP_NAME} deployment failed to Production Env"
+					}
+				}
+			}
+    }
+		post {
+      success {
+        slackSend channel: 'jenkins', color: 'good', teamDomain: 'auth-assos', tokenCredentialId: 'jenkins-slack-integration', message: "e-Consent server - #${env.BUILD_NUMBER} Success (<${env.RUN_DISPLAY_URL}|Open>) \nBranch:'${env.BRANCH_NAME}'"
+      }
+      failure {
+        slackSend channel: 'jenkins', color: 'danger', teamDomain: 'auth-assos', tokenCredentialId: 'jenkins-slack-integration', message: "e-Consent server - #${env.BUILD_NUMBER} Error (<${env.RUN_DISPLAY_URL}|Open>) \nBranch:'${env.BRANCH_NAME}'"
+      }
+      aborted {
+        slackSend channel: 'jenkins', color: 'warning', teamDomain: 'auth-assos', tokenCredentialId: 'jenkins-slack-integration', message: "e-Consent server - #${env.BUILD_NUMBER} Aborted (<${env.RUN_DISPLAY_URL}|Open>) \nBranch:'${env.BRANCH_NAME}'"
+      }
+    }
+}
